@@ -170,7 +170,7 @@ export default function AuthPage() {
           {/* Google Button */}
           <button
             type="button"
-            onClick={() => window.location.href = '/api/auth/google'}
+            onClick={() => router.push("/api/auth/google")}
             className="
               w-full
               bg-black
@@ -197,7 +197,7 @@ export default function AuthPage() {
           {/* Apple Button */}
           <button
             type="button"
-            onClick={() => window.location.href = '/api/auth/apple'}
+            onClick={() => router.push("/api/auth/apple")}
             className="
               w-full
               bg-black
