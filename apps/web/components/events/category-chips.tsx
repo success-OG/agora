@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, type Transition, type Variants } from "framer-motion";
 import Image from "next/image";
 import type { DiscoverCategory } from "@/utils/api";
 
@@ -11,7 +11,7 @@ type CategoryChipsProps = {
   isLoading?: boolean;
 };
 
-const itemVariants = {
+const itemVariants: Variants = {
   hidden: { opacity: 0, y: 16, filter: "blur(4px)" },
   show: {
     opacity: 1,
@@ -19,7 +19,7 @@ const itemVariants = {
     filter: "blur(0px)",
     transition: {
       duration: 0.4,
-      ease: "easeOut",
+      ease: "easeOut" as Transition["ease"],
     },
   },
 };
