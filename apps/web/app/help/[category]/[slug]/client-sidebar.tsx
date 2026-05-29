@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { Article } from "../../../data";
+import type { Article } from "../../../data";
 
 interface ClientSidebarProps {
   categorySlug: string;
