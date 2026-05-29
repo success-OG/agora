@@ -19,7 +19,6 @@ export default async function EventDetailPage({
     notFound();
   }
 
-
   // Mock host data matching Figma
   const host = {
     name: "Stellar Community",
@@ -36,7 +35,7 @@ export default async function EventDetailPage({
         <div className="flex flex-col lg:flex-row gap-8 lg:gap-16">
           {/* LEFT COLUMN (Desktop) / TOP ITEMS (Mobile) */}
           <div className="lg:w-[55%] flex flex-col gap-8 lg:gap-10">
-            {/* Cover Image Container - Dark Navy Background */}
+            {/* Cover Image Container - Dark Navy Background (Hero Asset: Priority Maintained) */}
             <div className="relative aspect-16/10 sm:aspect-16/11 w-full rounded-[32px] sm:rounded-[40px] overflow-hidden bg-dark shadow-sm flex items-center justify-center p-6 sm:p-12">
               <div className="relative w-full h-full">
                 <Image
@@ -49,7 +48,7 @@ export default async function EventDetailPage({
               </div>
             </div>
 
-            {/* Hosted By - Positioned after image on mobile */}
+            {/* Hosted By */}
             <div className="flex flex-col gap-4">
               <h2 className="text-xl font-bold text-black font-heading">
                 Hosted By
@@ -61,6 +60,7 @@ export default async function EventDetailPage({
                     fill
                     alt="Stellar"
                     className="object-contain p-1.5"
+                    loading="lazy"
                   />
                 </div>
                 <span className="text-[17px] font-medium text-black">
@@ -78,6 +78,7 @@ export default async function EventDetailPage({
                     width={20}
                     height={20}
                     alt="location"
+                    loading="lazy"
                   />
                 </div>
                 <h2 className="text-xl font-bold text-black font-heading">
@@ -109,6 +110,7 @@ export default async function EventDetailPage({
                     width={22}
                     height={22}
                     alt="location"
+                    loading="lazy"
                   />
                 </div>
                 <span className="text-[18px] sm:text-[19px] font-medium text-black">
@@ -122,6 +124,7 @@ export default async function EventDetailPage({
                     width={22}
                     height={22}
                     alt="Date"
+                    loading="lazy"
                   />
                 </div>
                 <span className="text-[18px] sm:text-[19px] font-medium text-black">
@@ -195,6 +198,7 @@ export default async function EventDetailPage({
                     width={20}
                     height={20}
                     alt="location"
+                    loading="lazy"
                   />
                 </div>
                 <h2 className="text-xl font-bold text-black font-heading">
@@ -221,6 +225,7 @@ export default async function EventDetailPage({
           width={600}
           height={600}
           alt="bg-watermark"
+          loading="lazy"
         />
       </div>
     </main>
