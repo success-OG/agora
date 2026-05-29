@@ -54,21 +54,22 @@ export function CategorySection({ activeCategory, onCategoryChange, onError }: C
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    let active = true;
+    // AbortController cancels the in-flight fetch when the component unmounts,
+    // preventing state updates on an unmounted component and avoiding memory leaks.
+    const controller = new AbortController();
 
     const loadCategories = async () => {
       try {
-        const data = await fetchCategories();
-        if (active) {
-          setCategories(data);
-        }
-      } catch {
-        if (active) {
-          setCategories([]);
-          onError("Could not load categories");
-        }
+        const data = await fetchCategories(controller.signal);
+        setCategories(data);
+      } catch (err) {
+        // Ignore abort errors — they are intentional and not user-facing.
+        if (err instanceof Error && err.name === "AbortError") return;
+        setCategories([]);
+        onError("Could not load categories");
       } finally {
-        if (active) {
+        // Only update loading state if the fetch was not aborted.
+        if (!controller.signal.aborted) {
           setIsLoading(false);
         }
       }
@@ -76,7 +77,7 @@ export function CategorySection({ activeCategory, onCategoryChange, onError }: C
 
     loadCategories();
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [onError]);
 

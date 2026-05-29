@@ -61,21 +61,22 @@ export function OrganizerComponent({ onError }: OrganizerComponentProps) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    let active = true;
+    // AbortController cancels the in-flight fetch when the component unmounts,
+    // preventing state updates on an unmounted component and avoiding memory leaks.
+    const controller = new AbortController();
 
     const loadOrganizers = async () => {
       try {
-        const data = await fetchOrganizers();
-        if (active) {
-          setCardsData(data);
-        }
-      } catch {
-        if (active) {
-          setCardsData([]);
-          onError("Could not load organizers");
-        }
+        const data = await fetchOrganizers(controller.signal);
+        setCardsData(data);
+      } catch (err) {
+        // Ignore abort errors — they are intentional and not user-facing.
+        if (err instanceof Error && err.name === "AbortError") return;
+        setCardsData([]);
+        onError("Could not load organizers");
       } finally {
-        if (active) {
+        // Only update loading state if the fetch was not aborted.
+        if (!controller.signal.aborted) {
           setIsLoading(false);
         }
       }
@@ -83,7 +84,7 @@ export function OrganizerComponent({ onError }: OrganizerComponentProps) {
 
     loadOrganizers();
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [onError]);
 

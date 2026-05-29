@@ -27,8 +27,10 @@ type DiscoverResponse = {
   organizers: DiscoverOrganizer[];
 };
 
-async function fetchDiscoverPayload(): Promise<DiscoverResponse> {
-  const response = await fetch("/api/events/discover");
+// Accepts an optional AbortSignal so callers can cancel the request
+// when a component unmounts, preventing state updates on unmounted components.
+async function fetchDiscoverPayload(signal?: AbortSignal): Promise<DiscoverResponse> {
+  const response = await fetch("/api/events/discover", { signal });
   if (!response.ok) {
     throw new Error("Unable to fetch discover data");
   }
@@ -36,17 +38,17 @@ async function fetchDiscoverPayload(): Promise<DiscoverResponse> {
   return response.json();
 }
 
-export async function fetchCategories(): Promise<DiscoverCategory[]> {
-  const data = await fetchDiscoverPayload();
+export async function fetchCategories(signal?: AbortSignal): Promise<DiscoverCategory[]> {
+  const data = await fetchDiscoverPayload(signal);
   return data.categories;
 }
 
-export async function fetchPopularEvents(): Promise<DiscoverEvent[]> {
-  const data = await fetchDiscoverPayload();
+export async function fetchPopularEvents(signal?: AbortSignal): Promise<DiscoverEvent[]> {
+  const data = await fetchDiscoverPayload(signal);
   return data.popularEvents;
 }
 
-export async function fetchOrganizers(): Promise<DiscoverOrganizer[]> {
-  const data = await fetchDiscoverPayload();
+export async function fetchOrganizers(signal?: AbortSignal): Promise<DiscoverOrganizer[]> {
+  const data = await fetchDiscoverPayload(signal);
   return data.organizers;
 }
