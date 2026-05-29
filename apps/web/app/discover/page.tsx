@@ -9,6 +9,7 @@ import { Footer } from "@/components/layout/footer";
 
 export default function DiscoverPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string>("All");
 
   const showErrorToast = (message: string) => {
     setToastMessage(message);
@@ -16,15 +17,22 @@ export default function DiscoverPage() {
   };
 
   return (
-    <main className="flex flex-col min-h-screen bg-[#FFFBE9]">
+    <main className="flex flex-col min-h-screen bg-base">
       <Navbar />
       {toastMessage && (
         <div className="fixed top-4 right-4 z-[60] rounded-lg bg-black px-4 py-3 text-sm text-white shadow-lg">
           {toastMessage}
         </div>
       )}
-      <CategorySection onError={showErrorToast} />
-      <PopularEventsSection onError={showErrorToast} />
+      <CategorySection 
+        activeCategory={activeCategory} 
+        onCategoryChange={setActiveCategory} 
+        onError={showErrorToast} 
+      />
+      <PopularEventsSection 
+        activeCategory={activeCategory} 
+        onError={showErrorToast} 
+      />
       <OrganizerComponent onError={showErrorToast} />
       <Footer />
     </main>
