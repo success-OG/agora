@@ -9,11 +9,13 @@ import { Footer } from "@/components/layout/footer";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, Home, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { useIsMounted } from "@/hooks/useIsMounted";
 
 export default function CreateEventPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [createdEventId, setCreatedEventId] = useState<string | null>(null);
+  const isMounted = useIsMounted();
 
   // Form State
   const [formData, setFormData] = useState({
@@ -258,12 +260,32 @@ export default function CreateEventPage() {
 
               <div className="flex-1 bg-white/50 backdrop-blur-sm border-[1.5px] border-black/3 rounded-[16px] p-4 px-5 flex items-center justify-between shadow-sm min-w-[200px]">
                 <div className="flex flex-col gap-0 justify-center h-full">
-                  <span className="text-[15px] font-medium text-black leading-[18px]">
-                    GMT+00:00
-                  </span>
-                  <span className="text-[15px] text-black/50 leading-[20px] -mt-[2px]">
-                    UTC
-                  </span>
+                  {isMounted ? (
+                    <>
+                      <span className="text-[15px] font-medium text-black leading-[18px]">
+                        {(() => {
+                          const offsetMinutes = -new Date().getTimezoneOffset();
+                          const sign = offsetMinutes >= 0 ? "+" : "-";
+                          const absMinutes = Math.abs(offsetMinutes);
+                          const hours = String(Math.floor(absMinutes / 60)).padStart(2, "0");
+                          const mins = String(absMinutes % 60).padStart(2, "0");
+                          return `GMT${sign}${hours}:${mins}`;
+                        })()}
+                      </span>
+                      <span className="text-[15px] text-black/50 leading-[20px] -mt-[2px]">
+                        {Intl.DateTimeFormat().resolvedOptions().timeZone}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[15px] font-medium text-black leading-[18px] invisible">
+                        GMT+00:00
+                      </span>
+                      <span className="text-[15px] text-black/50 leading-[20px] -mt-[2px] invisible">
+                        UTC
+                      </span>
+                    </>
+                  )}
                 </div>
                 <div className="w-[49px] h-[49px] bg-base rounded-[120px] flex items-center justify-center shrink-0">
                   <Image
