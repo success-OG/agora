@@ -486,3 +486,10 @@ export default function CreateEventPage() {
                 )}
               </Button>
             </div>
+            </div>
+        </div>
+      </form>
+      <Footer />
+    </main>
+  );
+}
