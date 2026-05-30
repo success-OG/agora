@@ -8,6 +8,7 @@ import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { CheckCircle2, Home, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { createEventSchema } from "@/lib/validation";
 
 export default function CreateEventPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -44,25 +45,31 @@ export default function CreateEventPage() {
     }
   };
 
-  const validate = () => {
-    const newErrors: Record<string, string> = {};
-    if (!formData.title.trim()) newErrors.title = "Event title is required";
-    if (!formData.startDate) newErrors.startDate = "Start date is required";
-    if (!formData.startTime) newErrors.startTime = "Start time is required";
-    if (!formData.location.trim()) newErrors.location = "Location is required";
-    if (!formData.price.trim()) newErrors.price = "Price is required (put 0 for free)";
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) {
+
+    const result = createEventSchema.safeParse({
+      title: formData.title,
+      startDate: formData.startDate,
+      startTime: formData.startTime,
+      location: formData.location,
+      price: formData.price,
+    });
+
+    if (!result.success) {
+      const fieldErrors: Record<string, string> = {};
+      for (const issue of result.error.issues) {
+        const field = issue.path[0] as string;
+        if (!fieldErrors[field]) {
+          fieldErrors[field] = issue.message;
+        }
+      }
+      setErrors(fieldErrors);
       toast.error("Please fill in all required fields");
       return;
     }
 
+    setErrors({});
     setIsSubmitting(true);
     try {
       const response = await fetch("/api/events", {
@@ -229,6 +236,12 @@ export default function CreateEventPage() {
                     />
                   </div>
                 </div>
+
+                {(errors.startDate || errors.startTime) && (
+                  <span className="text-red-500 text-xs font-bold mt-1 ml-10">
+                    {errors.startDate || errors.startTime}
+                  </span>
+                )}
 
                 <div className="flex items-center mt-[18px]">
                   <div className="w-[10px] h-[10px] rounded-[10px] border border-[#171402]/50 bg-transparent shrink-0 relative z-10 ml-3" />
@@ -436,18 +449,21 @@ export default function CreateEventPage() {
                 <div className="absolute w-[212px] h-[50px] left-0 top-[6px] bg-[#000000] rounded-[32px]" />
                 <button
                   type="button"
-                  onClick={() => setFormData({
-                    title: "",
-                    startDate: "",
-                    startTime: "",
-                    endDate: "",
-                    endTime: "",
-                    location: "",
-                    description: "",
-                    capacity: "",
-                    price: "",
-                    visibility: "Public",
-                  })}
+                  onClick={() => {
+                    setFormData({
+                      title: "",
+                      startDate: "",
+                      startTime: "",
+                      endDate: "",
+                      endTime: "",
+                      location: "",
+                      description: "",
+                      capacity: "",
+                      price: "",
+                      visibility: "Public",
+                    });
+                    setErrors({});
+                  }}
                   className="absolute w-[212px] h-[50px] left-[3px] top-0 bg-[#FFFFFF] border-2 border-[#000000] rounded-[32px] flex items-center justify-center hover:bg-gray-50 transition-transform active:translate-y-1 active:translate-x-px"
                 >
                   <span className="font-semibold text-[15px] text-[#000000] text-center w-[131px] leading-[30px]">

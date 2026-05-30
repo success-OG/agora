@@ -3,11 +3,7 @@
 import { useState, FormEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-
-function validateEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
+import { authSchema } from "@/lib/validation";
 
 export default function AuthPage() {
   const [email, setEmail] = useState("");
@@ -18,13 +14,9 @@ export default function AuthPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    if (!email) {
-      setError("Email is required");
-      return;
-    }
-
-    if (!validateEmail(email)) {
-      setError("Enter a valid email");
+    const result = authSchema.safeParse({ email });
+    if (!result.success) {
+      setError(result.error.issues[0].message);
       return;
     }
 
@@ -131,12 +123,12 @@ export default function AuthPage() {
               border-2 border-black
               rounded-full
               px-4 py-2
-              mb-4
+              mb-1
               outline-none
             "
           />
 
-          {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+          {error && <p className="text-xs text-red-500 mb-3 mt-1">{error}</p>}
 
           {/* Yellow Continue Button */}
           <button
@@ -151,6 +143,7 @@ export default function AuthPage() {
               font-medium
               flex items-center justify-center gap-2
               mb-4
+              mt-3
               border-2 border-black
               shadow-[0_4px_0_#000]
               active:translate-y-[2px]
