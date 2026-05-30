@@ -11,7 +11,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{Row, PgPool};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -30,8 +30,10 @@ use crate::utils::response::success;
 pub struct SearchParams {
     /// Keyword search in title/description
     pub q: Option<String>,
-    /// Filter by category ID
+    /// Filter by category ID (single, backward-compat)
     pub category_id: Option<Uuid>,
+    /// Comma-separated category UUIDs for multi-select filtering
+    pub category_ids: Option<String>,
     /// Minimum ticket price in cents (e.g., 1000 = $10.00)
     pub min_price: Option<i64>,
     /// Maximum ticket price in cents (e.g., 5000 = $50.00)
@@ -40,6 +42,8 @@ pub struct SearchParams {
     pub date_from: Option<DateTime<Utc>>,
     /// Events starting before this date
     pub date_to: Option<DateTime<Utc>>,
+    /// Filter by location (partial match, case-insensitive)
+    pub location: Option<String>,
     /// Page number (default: 1)
     #[serde(default = "default_page")]
     pub page: u32,
@@ -92,6 +96,9 @@ pub struct EventFilters {
 
     /// Search in title and description
     pub search: Option<String>,
+
+    /// Filter by free events (true = ticket_price = 0, false = ticket_price > 0)
+    pub is_free: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,6 +128,7 @@ pub struct SubmitEventRatingResponse {
 /// - `start_after` (optional): Filter events starting after date
 /// - `start_before` (optional): Filter events starting before date
 /// - `search` (optional): Search in title and description
+/// - `is_free` (optional): Filter by free events (true = ticket_price = 0, false = ticket_price > 0)
 ///
 /// # Response
 /// Returns a cursor-paginated list of upcoming events with metadata
@@ -179,6 +187,18 @@ pub async fn list_events(
             "(title ILIKE ${0} OR description ILIKE ${0})",
             param_count
         ));
+    }
+
+    if let Some(is_free) = filters.is_free {
+        if is_free {
+            where_clauses.push(
+                "NOT EXISTS (SELECT 1 FROM ticket_tiers tt WHERE tt.event_id = events.id AND tt.price > 0.0)".to_string(),
+            );
+        } else {
+            where_clauses.push(
+                "EXISTS (SELECT 1 FROM ticket_tiers tt WHERE tt.event_id = events.id AND tt.price > 0.0)".to_string(),
+            );
+        }
     }
 
     // Cursor condition: (start_time, id) > (cursor.start_time, cursor.id)
@@ -477,6 +497,7 @@ pub async fn submit_event_rating(
 /// - `category_id` (optional): Filter by category UUID
 /// - `min_price` (optional): Minimum ticket price in cents
 /// - `max_price` (optional): Maximum ticket price in cents
+/// - `location` (optional): Filter by location (partial match, case-insensitive)
 /// - `date_from` (optional): Events starting after this date
 /// - `date_to` (optional): Events starting before this date
 /// - `page` (optional): Page number (default: 1)
@@ -507,10 +528,25 @@ pub async fn search_events(
         ));
     }
 
+    // Collect all category IDs (multi-select + backward-compat single)
+    let mut category_ids: Vec<Uuid> = Vec::new();
+    if let Some(raw) = &params.category_ids {
+        for part in raw.split(',') {
+            if let Ok(id) = part.trim().parse::<Uuid>() {
+                category_ids.push(id);
+            }
+        }
+    }
+    if let Some(id) = params.category_id {
+        if !category_ids.contains(&id) {
+            category_ids.push(id);
+        }
+    }
+
     // Filter by category (requires join with event_categories)
-    let category_join = if params.category_id.is_some() {
+    let category_join = if !category_ids.is_empty() {
         param_count += 1;
-        where_clauses.push(format!("ec.category_id = ${}", param_count));
+        where_clauses.push(format!("ec.category_id = ANY(${})", param_count));
         "INNER JOIN event_categories ec ON e.id = ec.event_id"
     } else {
         ""
@@ -531,6 +567,12 @@ pub async fn search_events(
     if params.max_price.is_some() {
         param_count += 1;
         where_clauses.push(format!("tt.price <= ${}", param_count));
+    }
+
+    // Filter by location (partial match)
+    if params.location.is_some() {
+        param_count += 1;
+        where_clauses.push(format!("e.location ILIKE ${}", param_count));
     }
 
     // Filter by date range
@@ -567,6 +609,9 @@ pub async fn search_events(
     if let Some(max_price) = params.max_price {
         let max_price_decimal = max_price as f64 / 100.0;
         count_query_builder = count_query_builder.bind(max_price_decimal);
+    }
+    if let Some(ref location) = params.location {
+        count_query_builder = count_query_builder.bind(format!("%{}%", location));
     }
     if let Some(date_from) = params.date_from {
         count_query_builder = count_query_builder.bind(date_from);
@@ -608,6 +653,9 @@ pub async fn search_events(
     if let Some(max_price) = params.max_price {
         let max_price_decimal = max_price as f64 / 100.0;
         items_query_builder = items_query_builder.bind(max_price_decimal);
+    }
+    if let Some(ref location) = params.location {
+        items_query_builder = items_query_builder.bind(format!("%{}%", location));
     }
     if let Some(date_from) = params.date_from {
         items_query_builder = items_query_builder.bind(date_from);
@@ -700,9 +748,236 @@ mod tests {
             start_after: None,
             start_before: None,
             search: Some("concert".to_string()),
+            is_free: None,
         };
 
         assert!(filters.organizer_id.is_some());
         assert_eq!(filters.location.unwrap(), "New York");
     }
+
+    #[test]
+    fn test_is_free_filter() {
+        let filters_free = EventFilters {
+            organizer_id: None,
+            location: None,
+            start_after: None,
+            start_before: None,
+            search: None,
+            is_free: Some(true),
+        };
+        assert_eq!(filters_free.is_free, Some(true));
+
+        let filters_paid = EventFilters {
+            organizer_id: None,
+            location: None,
+            start_after: None,
+            start_before: None,
+            search: None,
+            is_free: Some(false),
+        };
+        assert_eq!(filters_paid.is_free, Some(false));
+
+        let filters_none = EventFilters {
+            organizer_id: None,
+            location: None,
+            start_after: None,
+            start_before: None,
+            search: None,
+            is_free: None,
+        };
+        assert_eq!(filters_none.is_free, None);
+    }
+
+    #[test]
+    fn test_ratings_summary_distribution_zero_filled() {
+        let mut distribution = std::collections::HashMap::new();
+        for star in 1i16..=5 {
+            distribution.insert(star.to_string(), 0i64);
+        }
+        // Simulate two ratings: one 4-star, one 5-star
+        distribution.insert("4".to_string(), 1i64);
+        distribution.insert("5".to_string(), 1i64);
+
+        assert_eq!(distribution["1"], 0);
+        assert_eq!(distribution["2"], 0);
+        assert_eq!(distribution["3"], 0);
+        assert_eq!(distribution["4"], 1);
+        assert_eq!(distribution["5"], 1);
+    }
+
+    #[test]
+    fn test_ratings_summary_average_no_ratings() {
+        let total = 0i64;
+        let average = if total > 0 { 1.0f64 } else { 0.0f64 };
+        assert_eq!(average, 0.0);
+    }
+
+    #[test]
+    fn test_ratings_summary_average_computed() {
+        // 1×4 + 1×5 = 9 / 2 = 4.5
+        let rows: Vec<(i16, i64)> = vec![(4, 1), (5, 1)];
+        let total: i64 = rows.iter().map(|(_, c)| c).sum();
+        let weighted: i64 = rows.iter().map(|(r, c)| *r as i64 * c).sum();
+        let average = weighted as f64 / total as f64;
+        assert_eq!(average, 4.5);
+    }
+
+    #[test]
+    fn test_search_params_location() {
+        let params = SearchParams {
+            q: None,
+            category_id: None,
+            category_ids: None,
+            min_price: None,
+            max_price: None,
+            date_from: None,
+            date_to: None,
+            location: Some("Lagos".to_string()),
+            page: 1,
+            page_size: 20,
+        };
+        assert_eq!(params.location.as_deref(), Some("Lagos"));
+    }
 }
+
+#[derive(Serialize)]
+pub struct CheckInStats {
+    pub checked_in: i64,
+    pub total_sold: i64,
+    pub remaining: i64,
+}
+
+/// Response body for the ratings summary endpoint
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RatingsSummary {
+    pub average: f64,
+    pub total: i64,
+    pub distribution: std::collections::HashMap<String, i64>,
+}
+
+/// GET /api/v1/events/:id/ratings/summary
+///
+/// Returns the star-rating distribution for an event. Result is cached for 5 minutes.
+pub async fn get_ratings_summary(
+    State(mut state): State<EventState>,
+    Path(event_id): Path<Uuid>,
+) -> Response {
+    let cache_key = format!("event:ratings_summary:{}", event_id);
+
+    match state.redis.get::<RatingsSummary>(&cache_key).await {
+        Ok(Some(summary)) => {
+            return success(summary, "Ratings summary retrieved (cached)").into_response()
+        }
+        Ok(None) => {}
+        Err(e) => tracing::warn!("Redis error for ratings summary cache: {:?}", e),
+    }
+
+    // 404 if event doesn't exist
+    let exists = match sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)",
+    )
+    .bind(event_id)
+    .fetch_one(&state.pool)
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("Failed to check event existence: {:?}", e);
+            return AppError::DatabaseError(e).into_response();
+        }
+    };
+
+    if !exists {
+        return AppError::NotFound(format!("Event with id '{}' not found", event_id))
+            .into_response();
+    }
+
+    let rows = match sqlx::query_as::<_, (i16, i64)>(
+        "SELECT rating, COUNT(*) FROM event_ratings \
+         WHERE event_id = $1 GROUP BY rating ORDER BY rating",
+    )
+    .bind(event_id)
+    .fetch_all(&state.pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!("Failed to fetch ratings: {:?}", e);
+            return AppError::DatabaseError(e).into_response();
+        }
+    };
+
+    let mut distribution = std::collections::HashMap::new();
+    for star in 1i16..=5 {
+        distribution.insert(star.to_string(), 0i64);
+    }
+    for (rating, count) in &rows {
+        distribution.insert(rating.to_string(), *count);
+    }
+
+    let total: i64 = rows.iter().map(|(_, c)| c).sum();
+    let weighted: i64 = rows.iter().map(|(r, c)| *r as i64 * c).sum();
+    let average = if total > 0 {
+        weighted as f64 / total as f64
+    } else {
+        0.0
+    };
+
+    let summary = RatingsSummary {
+        average,
+        total,
+        distribution,
+    };
+
+    if let Err(e) = state
+        .redis
+        .set(&cache_key, &summary, EVENT_CACHE_TTL)
+        .await
+    {
+        tracing::warn!(
+            "Failed to cache ratings summary for event {}: {:?}",
+            event_id,
+            e
+        );
+    }
+
+    success(summary, "Ratings summary retrieved").into_response()
+}
+
+/// GET /api/v1/events/:id/check-in-stats
+pub async fn get_checkin_stats(
+    State(state): State<EventState>,
+    Path(event_id): Path<Uuid>,
+) -> Response {
+    let row = sqlx::query(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE status = 'used') AS checked_in,
+            COUNT(*) AS total_sold
+        FROM tickets
+        WHERE event_id = $1
+        "#,
+    )
+    .bind(event_id)
+    .fetch_optional(&state.pool)
+    .await;
+
+    match row {
+        Ok(Some(r)) => {
+            let checked_in: i64 = r.try_get("checked_in").unwrap_or(0);
+            let total_sold: i64 = r.try_get("total_sold").unwrap_or(0);
+            success(
+                CheckInStats {
+                    checked_in,
+                    total_sold,
+                    remaining: total_sold - checked_in,
+                },
+                "Check-in stats retrieved",
+            )
+            .into_response()
+        }
+        Ok(None) => AppError::NotFound(format!("Event '{}' not found", event_id)).into_response(),
+        Err(e) => AppError::InternalServerError(e.to_string()).into_response(),
+    }
+}
+
