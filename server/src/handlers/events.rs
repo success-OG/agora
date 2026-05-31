@@ -502,6 +502,24 @@ pub async fn submit_event_rating(
 
     let (ticket_status, ticket_event_id) = ticket;
 
+    let event_exists =
+        match sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)")
+            .bind(event_id)
+            .fetch_one(&state.pool)
+            .await
+        {
+            Ok(exists) => exists,
+            Err(e) => {
+                tracing::error!("Failed to check event existence for rating: {:?}", e);
+                return AppError::DatabaseError(e).into_response();
+            }
+        };
+
+    if !event_exists {
+        return AppError::NotFound(format!("Event with id '{}' not found", event_id))
+            .into_response();
+    }
+
     if ticket_event_id != event_id {
         return AppError::Forbidden("Ticket does not belong to this event".to_string())
             .into_response();
@@ -562,10 +580,14 @@ pub async fn submit_event_rating(
     )
     .bind(event_id)
     .bind(payload.rating)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
     {
-        Ok(event) => event,
+        Ok(Some(event)) => event,
+        Ok(None) => {
+            return AppError::NotFound(format!("Event with id '{}' not found", event_id))
+                .into_response();
+        }
         Err(e) => {
             tracing::error!("Failed to update event rating aggregates: {:?}", e);
             return AppError::DatabaseError(e).into_response();
