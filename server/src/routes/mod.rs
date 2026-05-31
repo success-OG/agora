@@ -38,7 +38,7 @@ use crate::handlers::{
     auth::{logout, request_nonce, verify_signature},
     categories::{get_category, list_categories},
     events::{
-        get_checkin_stats, get_event, get_event_revenue, get_ratings_summary, list_events,
+        create_event, get_checkin_stats, get_event, get_ratings_summary, list_events,
         search_events, submit_event_rating, toggle_event_flag, EventState,
     },
     example_empty_success, example_not_found, example_validation_error,
@@ -130,7 +130,7 @@ pub async fn create_routes(pool: PgPool, _config: Config, redis: RedisCache) -> 
 
     // Event routes with Redis caching
     let event_routes = Router::new()
-        .route("/", get(list_events))
+        .route("/", get(list_events).post(create_event))
         .route("/search", get(search_events))
         .route("/:id", get(get_event))
         .route("/:id/rate", post(submit_event_rating))
