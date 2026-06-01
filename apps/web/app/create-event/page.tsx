@@ -7,7 +7,7 @@ import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { createEventSchema } from "@/lib/validation";
+import { createEventSchema, CreateEventInput } from "@/lib/validation";
 import { useIsMounted } from "@/hooks/useIsMounted";
 
 
