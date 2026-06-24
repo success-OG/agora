@@ -58,22 +58,26 @@ export function PopularEventsSection({ activeCategory, onError }: PopularEventsS
   const [events, setEvents] = useState<DiscoverEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState<number | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   useEffect(() => {
-    // AbortController cancels the in-flight fetch when the component unmounts,
-    // preventing state updates on an unmounted component and avoiding memory leaks.
     const controller = new AbortController();
 
     const loadEvents = async () => {
       try {
-        const data = await fetchPopularEvents(controller.signal);
-        setEvents(data);
+        setIsLoading(true);
+        const data = await fetchPopularEvents(1, controller.signal);
+        setEvents(data.events);
+        setTotal(data.meta?.total ?? data.events.length);
+        setPage(data.meta?.page ?? 1);
       } catch (err) {
-        // Ignore abort errors — they are intentional and not user-facing.
         if (err instanceof Error && err.name === "AbortError") return;
         setEvents([]);
         onError("Could not load popular events");
       } finally {
-        // Only update loading state if the fetch was not aborted.
         if (!controller.signal.aborted) {
           setIsLoading(false);
         }
@@ -81,10 +85,36 @@ export function PopularEventsSection({ activeCategory, onError }: PopularEventsS
     };
 
     loadEvents();
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [onError]);
+
+  const loadMore = async () => {
+    // If we already know total and have loaded all, skip
+    if (total !== null && events.length >= total) return;
+
+    const nextPage = page + 1;
+    const controller = new AbortController();
+    try {
+      setIsLoadingMore(true);
+      const data = await fetchPopularEvents(nextPage, controller.signal);
+
+      // Append new events while avoiding duplicates
+      setEvents((prev) => {
+        const existingIds = new Set(prev.map((e) => e.id));
+        const newEvents = data.events.filter((e) => !existingIds.has(e.id));
+        return [...prev, ...newEvents];
+      });
+
+      setPage(data.meta?.page ?? nextPage);
+      setTotal(data.meta?.total ?? (total ?? events.length + data.events.length));
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      onError("Could not load more events");
+    } finally {
+      controller.abort();
+      setIsLoadingMore(false);
+    }
+  };
 
   const filteredEvents = useMemo(() => {
     let result = events;
@@ -148,6 +178,8 @@ export function PopularEventsSection({ activeCategory, onError }: PopularEventsS
     focused: { width: "8rem", paddingLeft: "2.5rem" },
     unfocused: { width: "2.438rem" },
   };
+
+  const allLoaded = total !== null && events.length >= total;
 
   return (
     <section className="px-4 bg-base py-12">
@@ -295,18 +327,32 @@ export function PopularEventsSection({ activeCategory, onError }: PopularEventsS
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.97 }}
         >
-          <Button
-            variant="primary"
-            className="border-none rounded-[13px]! h-11"
-          >
-            View all Events
-            <Image
-              src="/icons/arrow-right.svg"
-              width={24}
-              height={24}
-              alt="arrow-right icon"
-            />
-          </Button>
+          {!allLoaded && (
+            <Button
+              variant="primary"
+              className="border-none rounded-[13px]! h-11 flex items-center gap-3"
+              onClick={loadMore}
+            >
+              {isLoadingMore ? (
+                // Simple spinner using CSS
+                <span className="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  View all Events
+                  <Image
+                    src="/icons/arrow-right.svg"
+                    width={24}
+                    height={24}
+                    alt="arrow-right icon"
+                  />
+                </>
+              )}
+            </Button>
+          )}
+
+          {allLoaded && (
+            <div className="text-sm text-gray-500">All events loaded</div>
+          )}
         </motion.div>
       </div>
 
