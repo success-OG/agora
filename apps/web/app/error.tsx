@@ -1,12 +1,12 @@
 'use client'
 
 import { useEffect } from 'react'
+import Link from 'next/link'
 
 export default function GlobalError({ error, reset }: { error: Error; reset: () => void }) {
   useEffect(() => {
     // Log error to console or an external service
     // In a real app, replace this with your telemetry/logging
-    // eslint-disable-next-line no-console
     console.error('Unhandled error (GlobalError):', error)
   }, [error])
 
@@ -20,9 +20,11 @@ export default function GlobalError({ error, reset }: { error: Error; reset: () 
           <button onClick={() => reset()} style={{ padding: '10px 16px', borderRadius: 6, background: '#111', color: '#fff', border: 'none' }}>
             Try again
           </button>
-          <a href="/" style={{ display: 'inline-block', padding: '10px 16px', borderRadius: 6, background: '#eee', color: '#111', textDecoration: 'none' }}>
-            Home
-          </a>
+          <Link href="/">
+            <span style={{ display: 'inline-block', padding: '10px 16px', borderRadius: 6, background: '#eee', color: '#111', textDecoration: 'none' }}>
+              Home
+            </span>
+          </Link>
         </div>
       </div>
     </div>
