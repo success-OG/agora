@@ -28,6 +28,7 @@ use axum::{
 };
 use sqlx::PgPool;
 use std::time::Duration;
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::cache::RedisCache;
 use crate::config::{
@@ -41,14 +42,16 @@ use crate::handlers::{
         export_attendees_csv, get_attendee_count, get_checkin_stats, get_event, get_event_counts,
         get_event_organizer, get_event_share_link, get_event_social_proof, get_ratings_summary,
         list_event_tickets, list_events, list_events_by_category, list_past_events,
-        list_similar_events, search_events, submit_event_rating, toggle_event_flag, EventState,
+        list_similar_events, list_ticket_tiers, search_events, submit_event_rating,
+        toggle_event_flag, EventState,
     },
     example_empty_success, example_not_found, example_validation_error,
     health::{health_check, health_check_blockchain, health_check_db, health_check_ready},
-    leaderboard::get_leaderboard,
+    leaderboard::{get_leaderboard, LeaderboardState},
     monitoring::{monitoring_dashboard, MonitoringState},
     profile::{
         get_my_profile, get_organizer_stats, get_profile_by_address, patch_profile, upsert_profile,
+        ProfileState,
     },
     qr_payload::{delete_qr_payload, generate_qr_payload, list_event_qr_codes, list_qr_payloads, mark_qr_used, verify_qr_payload},
     rates::{get_rates, RatesState},
@@ -109,12 +112,22 @@ pub async fn create_routes(pool: PgPool, config: Config, redis: RedisCache) -> R
         .route("/logout", post(logout))
         .with_state(pool.clone());
 
+    let profile_state = ProfileState {
+        pool: pool.clone(),
+        redis: redis.clone(),
+    };
+
     // Organizer profile routes (Issue #486)
+    // Routes that use Redis caching use ProfileState; stats route keeps PgPool.
     let profile_routes = Router::new()
         .route("/", get(get_my_profile).put(upsert_profile).patch(patch_profile))
-        .route("/:address/stats", get(get_organizer_stats))
         .route("/:address", get(get_profile_by_address))
-        .with_state(pool.clone());
+        .with_state(profile_state)
+        .merge(
+            Router::new()
+                .route("/:address/stats", get(get_organizer_stats))
+                .with_state(pool.clone()),
+        );
 
     // Admin sub-router — every request is recorded in audit_logs.
     let admin_routes = Router::new()
@@ -153,6 +166,7 @@ pub async fn create_routes(pool: PgPool, config: Config, redis: RedisCache) -> R
         .route("/:id/share-link", get(get_event_share_link))
         .route("/:id/social-proof", get(get_event_social_proof))
         .route("/:id/tickets", get(list_event_tickets))
+        .route("/:id/ticket-tiers", get(list_ticket_tiers))
         .route("/:id/similar", get(list_similar_events))
         .route("/categories/:category_id", get(list_events_by_category))
         .with_state(event_state);
@@ -189,13 +203,18 @@ pub async fn create_routes(pool: PgPool, config: Config, redis: RedisCache) -> R
         )
         .layer(RateLimitLayer::new(SENSITIVE_RATE_LIMIT, SENSITIVE_WINDOW));
 
+    let leaderboard_state = LeaderboardState {
+        pool: pool.clone(),
+        redis: redis.clone(),
+    };
+
     // General endpoints — relaxed rate limit
     let general_routes = Router::new()
         .route("/examples/validation-error", get(example_validation_error))
         .route("/examples/empty-success", get(example_empty_success))
         .route("/examples/not-found/:id", get(example_not_found))
         .route("/leaderboard", get(get_leaderboard))
-        .with_state(pool)
+        .with_state(leaderboard_state)
         .layer(RateLimitLayer::new(GENERAL_RATE_LIMIT, GENERAL_WINDOW));
 
     // Public API routes with tower-governor rate limiting
@@ -212,6 +231,7 @@ pub async fn create_routes(pool: PgPool, config: Config, redis: RedisCache) -> R
         .nest("/ws", ws_routes)
         .nest("/qr", qr_routes)
         .merge(rates_route)
+        .layer(RequestBodyLimitLayer::new(1024 * 1024))
         .layer(GovernorRateLimitLayer::new(100, Duration::from_secs(60)));
 
     let api_routes = Router::new()
@@ -446,5 +466,27 @@ mod tests {
                 StatusCode::TOO_MANY_REQUESTS
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_body_size_limit_rejects_oversized_requests() {
+        use axum::body::Body;
+        use tower::ServiceExt;
+        use tower_http::limit::RequestBodyLimitLayer;
+
+        let limit: usize = 1024;
+        let router = Router::new()
+            .route("/test", post(|| async { "ok" }))
+            .layer(RequestBodyLimitLayer::new(limit));
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/test")
+            .header("content-length", "2048")
+            .body(Body::empty())
+            .unwrap();
+
+        let status = router.oneshot(req).await.unwrap().status();
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     }
 }
