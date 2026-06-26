@@ -419,7 +419,7 @@ async fn fetch_profile_by_address(pool: &PgPool, redis: &mut RedisCache, address
 // Organizer stats endpoint
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, FromRow)]
 struct OrganizerStats {
     pub total_events: i64,
     pub total_tickets_sold: i64,
@@ -430,6 +430,20 @@ static STATS_CACHE: Lazy<Mutex<HashMap<String, (Instant, OrganizerStats)>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 const STATS_CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
+
+fn organizer_stats_query() -> &'static str {
+    r#"
+    SELECT
+        COUNT(*) AS total_events,
+        COALESCE(SUM(e.minted_tickets), 0) AS total_tickets_sold,
+        COALESCE(AVG(CAST(e.sum_of_ratings AS FLOAT) / NULLIF(e.count_of_ratings, 0)), 0)
+            AS average_event_rating
+    FROM events e
+    JOIN organizers o ON e.organizer_id = o.id
+    WHERE o.wallet_address = $1
+      AND e.is_flagged = FALSE
+    "#
+}
 
 /// `GET /api/v1/profile/:address/stats`
 ///
@@ -450,67 +464,16 @@ pub async fn get_organizer_stats(
         }
     }
 
-    // total events
-    let total_events: i64 =
-        match sqlx::query_scalar(organizer_total_events_query())
-            .bind(&address)
-            .fetch_one(&pool)
-            .await
-        {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!("Failed to query total_events: {:?}", e);
-                return AppError::DatabaseError(e).into_response();
-            }
-        };
-
-    // total tickets sold
-    let total_tickets_sold: i64 = match sqlx::query_scalar(
-        r#"
-        SELECT COALESCE(SUM(e.minted_tickets), 0)
-        FROM events e
-        JOIN organizers o ON e.organizer_id = o.id
-        WHERE o.wallet_address = $1
-          AND e.is_flagged = FALSE
-        "#,
-    )
-    .bind(&address)
-    .fetch_one(&pool)
-    .await
+    let stats: OrganizerStats = match sqlx::query_as(organizer_stats_query())
+        .bind(&address)
+        .fetch_one(&pool)
+        .await
     {
         Ok(v) => v,
         Err(e) => {
-            tracing::error!("Failed to query total_tickets_sold: {:?}", e);
+            tracing::error!("Failed to query organizer stats: {:?}", e);
             return AppError::DatabaseError(e).into_response();
         }
-    };
-
-    // average event rating
-    let average_event_rating: f64 = match sqlx::query_scalar(
-        r#"
-        SELECT COALESCE(AVG(CAST(e.sum_of_ratings AS FLOAT) / NULLIF(e.count_of_ratings, 0)), 0)
-        FROM events e
-        JOIN organizers o ON e.organizer_id = o.id
-        WHERE o.wallet_address = $1
-          AND e.is_flagged = FALSE
-          AND e.count_of_ratings > 0
-        "#,
-    )
-    .bind(&address)
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!("Failed to query average_event_rating: {:?}", e);
-            return AppError::DatabaseError(e).into_response();
-        }
-    };
-
-    let stats = OrganizerStats {
-        total_events,
-        total_tickets_sold,
-        average_event_rating,
     };
 
     // store in cache
@@ -718,6 +681,19 @@ mod tests {
         assert!(query.contains("JOIN organizers"));
         assert!(query.contains("wallet_address = $1"));
         assert!(query.contains("is_flagged = FALSE"));
+    }
+
+    #[test]
+    fn test_organizer_stats_query_combines_aggregates() {
+        let query = organizer_stats_query();
+
+        assert_eq!(query.matches("SELECT").count(), 1);
+        assert!(query.contains("COUNT(*) AS total_events"));
+        assert!(query.contains("COALESCE(SUM(e.minted_tickets), 0) AS total_tickets_sold"));
+        assert!(query.contains("AVG(CAST(e.sum_of_ratings AS FLOAT) / NULLIF(e.count_of_ratings, 0))"));
+        assert!(query.contains("JOIN organizers"));
+        assert!(query.contains("o.wallet_address = $1"));
+        assert!(query.contains("e.is_flagged = FALSE"));
     }
 
     #[tokio::test]
